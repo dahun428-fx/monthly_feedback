@@ -1,0 +1,2 @@
+uvicorn mcp_server.server:app --reload --port 8000
+AIzaSyDUUVdRf49xY4BWapcZfNuaulOTKJM9jMA

@@ -1,0 +1,136 @@
+[
+  {
+    "week": "9월 1주차",
+    "tasks": [
+      {
+        "task": "Poc 미대상자 화면 개발 완료",
+        "status": "done",
+        "impact": "high"
+      },
+      {
+        "task": "추천 질문 화면 고도화 개발 완료",
+        "status": "done",
+        "impact": "high"
+      },
+      { "task": "웰체크 서비스 개발 완료", "status": "done", "impact": "high" },
+      {
+        "task": "‘전체’ 버튼 플로우 개발 완료",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "프로젝트 소스코드 디렉토리 위치 변경 및 파일 이름 변경하여 유지보수 향상",
+        "status": "done",
+        "impact": "mid"
+      }
+    ]
+  },
+  {
+    "week": "9월 2주차",
+    "tasks": [
+      { "task": "화면설계서 산출물 완료", "status": "done", "impact": "high" },
+      {
+        "task": "시나리오 테스트 산출물 완료",
+        "status": "done",
+        "impact": "high"
+      },
+      {
+        "task": "운영매뉴얼 작성 착수 (로그인 방법 / 빌드 가이드 / 프론트엔드 환경설정)",
+        "status": "in_progress",
+        "impact": "mid"
+      },
+      {
+        "task": "나만의 건강 AI 코치와 비즈케어 로그인 연동 완료",
+        "status": "done",
+        "impact": "high"
+      },
+      {
+        "task": "전역 에러페이지 개발 (404 / 500)",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "버그 수정 - 하이닥 콘텐츠 API 404 에러 개선",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "버그 수정 - 만족도평가 미출력 버그 개선 및 API Call 횟수 감소",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "프론트엔드 웹서버 (Nginx) 내부 라우터 변경",
+        "status": "done",
+        "impact": "mid"
+      }
+    ]
+  },
+  {
+    "week": "9월 3주차",
+    "tasks": [
+      {
+        "task": "UIUX 및 버그 개선 : 총 31건",
+        "status": "done",
+        "impact": "high"
+      },
+      {
+        "task": "에러로그 출력 대시보드 적용 (GlitchTip)",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "대화이력화면 API 출력 방식 변경 → API Call down 최적화",
+        "status": "done",
+        "impact": "mid"
+      },
+      { "task": "판단불가 페이지 추가 완료", "status": "done", "impact": "mid" }
+    ]
+  },
+  {
+    "week": "9월 4주차",
+    "tasks": [
+      { "task": "버그 및 UIUX 개선 : 15건", "status": "done", "impact": "mid" },
+      {
+        "task": "추천 질문 페이지 탭 클릭 방식 개선",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "이상소견 / 만성질환 모바일 최적화",
+        "status": "done",
+        "impact": "mid"
+      },
+      { "task": "채팅 화면 모바일 최적화", "status": "done", "impact": "mid" },
+      { "task": "그래프 버그 개선", "status": "done", "impact": "mid" },
+      { "task": "채팅 중지 기능 추가", "status": "done", "impact": "mid" },
+      {
+        "task": "대화 이력 페이지 버그 개선",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "LLM 채팅 에러케이스 화면 개발",
+        "status": "done",
+        "impact": "mid"
+      },
+      { "task": "favicon 추가", "status": "done", "impact": "low" },
+      { "task": "채팅 출력 방식 변경", "status": "done", "impact": "mid" },
+      {
+        "task": "UI 테스트 문서화를 위한 Storybook 라이브러리 추가",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "사이트 현황 체크를 위한 라이브러리 추가 (umami)",
+        "status": "done",
+        "impact": "mid"
+      },
+      {
+        "task": "i18n 다국어 서비스를 위한 라이브러리 추가",
+        "status": "done",
+        "impact": "high"
+      }
+    ]
+  }
+]
