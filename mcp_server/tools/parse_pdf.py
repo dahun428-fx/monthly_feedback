@@ -1,23 +1,30 @@
 import os
 import pdfplumber
 
-DESCRIPTION = "- parse_pdf(filename: str = None): PDF 파일의 텍스트를 추출합니다. filename이 없으면 폴더 안의 유일한 PDF를 처리합니다."
+DESCRIPTION = "- parse_pdf(filename: str = None): PDF 파일의 텍스트를 추출합니다. filename에 '@designated'를 전달하면 지정된 대표 KPI 파일을 읽습니다."
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_STORAGE_ROOT = os.path.normpath(os.path.join(BASE_DIR, "../../storage/pdf"))
+GUIDE_DIR = os.path.normpath(os.path.join(BASE_DIR, "../../storage/guide"))
 
 def run(filename: str = None):
     pdf_path = None
 
-    if filename:
-        # 보안을 위해 파일명이 경로를 포함하지 않도록 처리
+    if filename == '@designated':
+        pdf_path = os.path.join(GUIDE_DIR, "selected_KPI.pdf")
+        if not os.path.exists(pdf_path):
+            return {"status": "error", "message": "대표 KPI 파일('selected_KPI.pdf')이 지정되지 않았습니다. 'KPI 관리' 탭에서 먼저 지정해주세요."}
+        # For logging, use the designated name
+        filename = "selected_KPI.pdf"
+    elif filename:
+        # Security check to prevent path traversal
         if '/' in filename or '\\' in filename:
             return {"status": "error", "message": "filename에는 순수한 파일명만 입력해야 합니다."}
         pdf_path = os.path.join(PDF_STORAGE_ROOT, filename)
         if not os.path.exists(pdf_path):
             return {"status": "error", "message": f"PDF 파일을 찾을 수 없습니다: {pdf_path}"}
     else:
-        # filename이 없을 경우, 폴더를 스캔
+        # If no filename is given, scan the default PDF storage
         if not os.path.exists(PDF_STORAGE_ROOT):
             return {"status": "error", "message": f"PDF 루트 폴더를 찾을 수 없습니다: {PDF_STORAGE_ROOT}"}
         

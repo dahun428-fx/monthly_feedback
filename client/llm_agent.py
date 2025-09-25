@@ -28,7 +28,7 @@ model = genai.GenerativeModel(
 # 각 도구가 컨텍스트에서 어떤 인자가 필요한지 정의
 TOOL_CONTEXT_MAP: Dict[str, List[str]] = {
     "summarize_text": ["text_to_summarize"],
-    "generate_feedback": ["month", "todos", "kpi_summary"],
+    "generate_feedback": ["month", "todos", "kpi_summary", "template"],
     "export_to_notion": ["month", "content"],
     "export_report": ["month", "content"],
     # get_today / list_todos / parse_pdf 등은 인자 불필요 또는 실행 결과로 연결
@@ -42,8 +42,13 @@ SYSTEM_PROMPT_CORE = """당신은 도구를 호출하여 사용자를 돕는 AI 
 {DESCRIPTIONS}
 
 [시나리오 예시: 월간 보고서 + Notion]
-1) get_today → 2) list_todos → 3) get_pdf_filename → 4) parse_pdf → 5) summarize_text → 6) generate_feedback → 7) export_to_notion
+1) get_today → 2) list_todos → 3) get_pdf_filename → 4) parse_pdf → 5) summarize_text → 6) get_feedback_template → 7) generate_feedback → 8) export_to_notion
 항상 '한 단계씩만' 진행하세요.
+
+[월간 보고서 / 월간 피드백 작성 규칙]
+1) get_today → 2) list_todos → 3) get_pdf_filename → 4) parse_pdf → 5) summarize_text → 6) get_feedback_template → 7) generate_feedback → 8) export_to_notion
+항상 '한 단계씩만' 진행하세요.
+- 월간 보고서 작성시 참조할 list_todos 에서 날짜는 get_today 로부터 받은 date 와 동일한 month 에 해당하는 항목만 조회하세요.
 
 [응답 규칙]
 - 항상 JSON으로만 응답.
@@ -55,6 +60,9 @@ SYSTEM_PROMPT_CORE = """당신은 도구를 호출하여 사용자를 돕는 AI 
 - 할 일 목록(todos)을 사용자에게 보여줄 때는, 각 항목을 글머리 기호(-)를 사용하여 날짜, 할 일, 상태 순서로 보기 좋게 정리해서 보여주세요.
 - 도구 호출 실패 피드백을 받으면, 원인 해결을 위한 '다음 단일 도구'를 제안하세요.
 - 존재하지 않는 도구는 절대 만들지 마세요.
+- export 작업을 할때에는 markdown 은 모두 제거된 순수 텍스트로 된 내용을 content 인자로 넘기세요.
+- '*' 같은 마크다운 문법은 사용하지 마세요.
+- 월간 보고서 / 월간 피드백 작성 시에 상사에게 10점만점에 9점 이상을 받을 수 있는 수준으로 작성하세요.
 """
 
 def get_system_prompt(command: str = "") -> str:
@@ -83,6 +91,10 @@ def _merge_tool_result_into_context(context: Dict[str, Any], result_data: Dict[s
     # 파생: summarize_text → generate_feedback 입력 준비
     if "summary" in result_data and isinstance(result_data["summary"], str):
         context["kpi_summary"] = result_data["summary"]
+
+    # 파생: get_feedback_template -> generate_feedback 입력 준비
+    if "template" in result_data and isinstance(result_data["template"], str):
+        context["template"] = result_data["template"]
 
     # 파생: generate_feedback → export 계열 입력 준비
     if "content" in result_data and isinstance(result_data["content"], str):
