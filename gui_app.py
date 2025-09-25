@@ -5,6 +5,7 @@ import json
 import uuid
 import streamlit as st
 from dotenv import load_dotenv
+from client.llm_agent import agent_step, get_system_prompt
 
 # === 외부 도구 ===
 from mcp_server.tools import (
@@ -104,79 +105,164 @@ selected_month = st.sidebar.selectbox(
 st.session_state.selected_month = selected_month
 
 # ------------------------
-# Tabs
+# Tabs (Replaced with Radio)
 # ------------------------
-tab_todo, tab_kpi, tab_feedback = st.tabs(["할 일 관리", "KPI 관리", "월별 피드백"])
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "할 일 관리"
+
+# Define tab options
+tab_options = ["할 일 관리", "KPI 관리", "월별 피드백", "LLM 채팅"]
+
+# Use st.radio to simulate tabs
+st.session_state.active_tab = st.radio(
+    "Navigation", 
+    tab_options, 
+    horizontal=True, 
+    label_visibility="collapsed",
+    index=tab_options.index(st.session_state.active_tab) # Ensure state is respected
+)
 
 # ========================
-# 탭 1: 할 일 관리
+# Content for selected tab
 # ========================
-with tab_todo:
+
+if st.session_state.active_tab == "할 일 관리":
     st.header("할 일 관리")
 
-    # 추가
-    col1, col2, col3 = st.columns([6, 2, 1])
-    with col1:
-        new_task = st.text_input("새로운 할 일", key="new_task_input")
-    with col2:
-        impact = st.selectbox("임팩트", ["high","mid","low"], index=1, key="impact_select")
-    with col3:
-        if st.button("추가"):
-            if new_task.strip():
-                all_tasks = load_all_tasks()
-                all_tasks.append({
-                    "id": str(uuid.uuid4()),
-                    "task": new_task.strip(),
-                    "status": "pending",
-                    "impact": impact,
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                })
-                save_all_tasks(all_tasks)
-                st.success("할 일이 추가되었습니다.")
-                st.experimental_rerun()
+    from calendar import monthrange
 
+    # --- 현재 선택 월의 기본값/경계 계산 ---
+    sel_year, sel_month = map(int, st.session_state.selected_month.split("-"))
+    last_day = monthrange(sel_year, sel_month)[1]
+
+    today_date = datetime.now().date()
+    default_date = (
+        today_date if today_date.strftime("%Y-%m") == st.session_state.selected_month
+        else datetime(sel_year, sel_month, 1).date()
+    )
+
+    # 일괄 입력 날짜(달력) 세션 상태 준비
+    if "bulk_task_date" not in st.session_state:
+        st.session_state.bulk_task_date = default_date
+
+    st.subheader("일괄 입력 날짜")
+
+    # 1) 기본 달력
+    st.session_state.bulk_task_date = st.date_input(
+        "새로 추가되는 할 일의 기본 날짜를 선택하세요",
+        value=st.session_state.bulk_task_date,
+        key="bulk_task_date_date_input",
+    )
+
+
+    # ---- 입력: Enter만으로 추가 (버튼 제거) ----
+    def _add_task_on_enter():
+        val = (st.session_state.get("new_task_input") or "").strip()
+        if not val:
+            st.warning("할 일을 입력하세요.")
+            return
+        all_tasks = load_all_tasks()
+        all_tasks.append({
+            "id": str(uuid.uuid4()),
+            "task": val,
+            "status": "pending",
+            "impact": st.session_state.get("impact_select", "mid"),
+            "date": st.session_state.bulk_task_date.strftime("%Y-%m-%d"),
+        })
+        save_all_tasks(all_tasks)
+        st.session_state.new_task_input = ""  # 입력창 초기화
+        st.success(f"[{st.session_state.bulk_task_date.strftime('%Y-%m-%d')}] 할 일이 추가되었습니다.")
+
+
+    col1, col2 = st.columns([6, 3])
+    with col1:
+        st.text_input(
+            "새로운 할 일",
+            key="new_task_input",
+            placeholder="할 일을 입력 후 Enter",
+            on_change=_add_task_on_enter,   # ✅ Enter 시 자동 등록
+        )
+    with col2:
+        # 임팩트와 입력창을 같은 행에 유지 (버튼 없음)
+        st.selectbox(
+            "임팩트",
+            ["high", "mid", "low"],
+            index=1,
+            key="impact_select"
+        )
+
+    # ---- 목록 표시 (선택 월만) ----
     st.subheader(f"{selected_month}의 할 일")
-    tasks = [t for t in load_all_tasks() if t.get("date","").startswith(selected_month)]
+    tasks = [t for t in load_all_tasks() if t.get("date", "").startswith(selected_month)]
     if not tasks:
         st.info("현재 월의 할 일 없음")
     else:
-        changed = False
-        for t in sorted(tasks, key=lambda x: x.get("date",""), reverse=True):
-            if "id" not in t:
+        # 최신 날짜 우선 정렬
+        tasks_sorted = sorted(tasks, key=lambda x: (x.get("date", ""), x.get("task", "")), reverse=True)
+
+        all_items = load_all_tasks()
+        all_by_id = {x.get("id"): x for x in all_items}
+
+        for t in tasks_sorted:
+            # id 보정
+            if "id" not in t or not t["id"]:
                 t["id"] = str(uuid.uuid4())
-                changed = True
             t_id = t["id"]
-            cols = st.columns([0.7, 0.15, 0.15])
+
+            cols = st.columns([0.55, 0.15, 0.15, 0.15])
             with cols[0]:
-                checked = st.checkbox(
-                    f"{t.get('date','')} - {t.get('task','')}",
-                    value=(t.get("status") == "done"),
-                    key=f"chk_{t_id}",
-                )
-                new_status = "done" if checked else "pending"
-                if new_status != t.get("status"):
-                    t["status"] = new_status
-                    changed = True
+                status_label = "✅" if t.get("status") == "done" else "⏳"
+                st.markdown(f"{status_label} **{t.get('date','')}** - {t.get('task','')}")
+                st.caption(f"임팩트: **{t.get('impact','mid')}** | 상태: **{t.get('status','pending')}**")
+
             with cols[1]:
-                st.write(f"임팩트: **{t.get('impact','mid')}**")
+                # 완료 토글 버튼
+                is_done = t.get("status") == "done"
+                toggle_label = "되돌리기" if is_done else "완료"
+                if st.button(toggle_label, key=f"done_{t_id}", help="상태 토글"):
+                    t["status"] = "pending" if is_done else "done"
+                    all_by_id[t_id] = t
+                    save_all_tasks(list(all_by_id.values()))
+                    st.rerun()
+
             with cols[2]:
+                # 팝오버: 버튼을 누르면 그 자리 위/옆에 달력이 뜸
+                pop = st.popover("날짜변경")  # key 없이
+                with pop:
+                    # 현재 값 기본 세팅
+                    current_date = t.get("date") or f"{selected_month}-01"
+                    try:
+                        base_dt = datetime.strptime(current_date, "%Y-%m-%d").date()
+                    except Exception:
+                        base_dt = datetime(sel_year, sel_month, 1).date()
+
+                    # ✅ min/max 제한 제거 → 연/월 자유 변경 가능
+                    new_dt = st.date_input(
+                        "날짜 선택",
+                        value=base_dt,
+                        key=f"edit_date_{t_id}",
+                    )
+
+                    btn1, btn2 = st.columns(2)
+                    with btn1:
+                        if st.button("저장", key=f"save_date_{t_id}"):
+                            t["date"] = new_dt.strftime("%Y-%m-%d")
+                            all_by_id[t_id] = t
+                            save_all_tasks(list(all_by_id.values()))
+                            st.success("날짜 변경 완료")
+                            st.rerun()
+                    with btn2:
+                        st.button("취소", key=f"cancel_date_{t_id}")
+
+
+            with cols[3]:
                 if st.button("삭제", key=f"del_{t_id}"):
-                    save_all_tasks([x for x in load_all_tasks() if x.get("id") != t_id])
+                    save_all_tasks([x for x in all_by_id.values() if x.get("id") != t_id])
                     st.warning("삭제됨")
-                    st.experimental_rerun()
+                    st.rerun()
 
-        if changed:
-            # 현재 월의 변경사항을 전체 파일에 반영
-            all_items = load_all_tasks()
-            by_id = {x.get("id"): x for x in all_items}
-            for t in tasks:
-                by_id[t["id"]] = t
-            save_all_tasks(list(by_id.values()))
 
-# ========================
-# 탭 2: KPI 관리
-# ========================
-with tab_kpi:
+elif st.session_state.active_tab == "KPI 관리":
     st.header("KPI PDF 관리")
 
     # --- 업로드는 '제출' 눌렀을 때만 수행 (무한 업로드 방지) ---
@@ -219,10 +305,7 @@ with tab_kpi:
     else:
         st.info("저장된 PDF가 없습니다. 상단에서 업로드하세요.")
 
-# ========================
-# 탭 3: 월별 피드백
-# ========================
-with tab_feedback:
+elif st.session_state.active_tab == "월별 피드백":
     st.header("월별 피드백 보고서")
 
     # 상태/메시지 영역 (항상 같은 위치에 하나만)
@@ -315,3 +398,54 @@ with tab_feedback:
                 "[Notion 이동](https://www.notion.so/TEST-PAGE-27809ae27c27807da3d2e6cd7e74b836)",
                 unsafe_allow_html=True
             )
+
+elif st.session_state.active_tab == "LLM 채팅":
+    st.header("LLM 에이전트와 대화")
+
+    # Initialize chat state
+    if "llm_messages" not in st.session_state:
+        # LLM이 사용하는 메시지 형식
+        st.session_state.llm_messages = [{"role": "user", "parts": [{"text": get_system_prompt("Streamlit GUI")}]}]
+    if "ui_messages" not in st.session_state:
+        # UI에 표시하기 위한 메시지
+        st.session_state.ui_messages = [{"role": "assistant", "content": "안녕하세요! 월간 보고서 작성에 대해 무엇을 도와드릴까요?"}]
+    if "llm_context" not in st.session_state:
+        st.session_state.llm_context = {}
+
+    # Display UI messages
+    for message in st.session_state.ui_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("명령을 입력하세요..."):
+        # Add user message to UI and LLM histories
+        st.session_state.ui_messages.append({"role": "user", "content": prompt})
+        st.session_state.llm_messages.append({"role": "user", "parts": [{"text": f"사용자 명령어: {prompt}"}]})
+        
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Loop until the agent provides a final answer
+        while True:
+            with st.chat_message("assistant"):
+                placeholder = st.empty()
+                placeholder.markdown("🤔 Thinking...")
+
+                # Execute one step of the agent
+                new_llm_messages, new_context, ui_message, is_final = agent_step(
+                    st.session_state.llm_messages, 
+                    st.session_state.llm_context
+                )
+
+                # Update state for the next iteration
+                st.session_state.llm_messages = new_llm_messages
+                st.session_state.llm_context = new_context
+                
+                # Show the result of the current step
+                placeholder.markdown(ui_message)
+            
+            # Add the agent's step output to the UI history
+            st.session_state.ui_messages.append({"role": "assistant", "content": ui_message})
+
+            if is_final:
+                break

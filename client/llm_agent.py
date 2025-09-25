@@ -19,18 +19,8 @@ TOOL_CONTEXT_MAP = {
     "export_report": ["month", "content"],
 }
 
-def run_agent(command: str):
-    """
-    Runs the agent loop to process a command, using tools until a final answer is reached.
-    """
-    print(f"🚀 Starting agent with command: {command}")
-
-    messages = [
-        {
-            "role": "user",
-            "parts": [
-                {
-                    "text": f"""당신은 도구를 호출하여 사용자를 돕는 AI 에이전트입니다. 당신의 목표는 사용자의 요청에 가장 적절한 단 하나의 도구를 호출하여 응답하는 것입니다.
+def get_system_prompt(command: str = ""):
+    return f'''당신은 도구를 호출하여 사용자를 돕는 AI 에이전트입니다. 당신의 목표는 사용자의 요청에 가장 적절한 단 하나의 도구를 호출하여 응답하는 것입니다.
 
 사용 가능한 도구 목록:
 {DESCRIPTIONS}
@@ -53,74 +43,98 @@ def run_agent(command: str):
 - 없는 도구를 만들지 말고, 주어진 도구만 사용해야 합니다.
 
 사용자 명령어: {command}
-"""
-                }
-            ],
-        }
-    ]
-    
-    context = {}
+'''
 
+def agent_step(messages: list, context: dict):
+    """
+    Performs one step of the agent's logic.
+    """
+    response = model.generate_content(messages)
+    ui_message = ""
+    is_final = False
+
+    try:
+        llm_response = json.loads(response.text)
+        print(f"💡 LLM says: {json.dumps(llm_response, indent=2, ensure_ascii=False)}")
+    except (json.JSONDecodeError, AttributeError) as e:
+        print(f"❌ Error decoding LLM response: {e}")
+        print(f"Raw response: {response.text}")
+        llm_response = {"final_answer": "죄송합니다, 응답을 처리하는 중 오류가 발생했습니다."}
+        ui_message = llm_response["final_answer"]
+        is_final = True
+
+    if "tool_code" in llm_response:
+        tool_call = llm_response["tool_code"]
+        
+        if isinstance(tool_call, str):
+            tool_call = {"tool": tool_call, "args": {}}
+
+        tool_name = tool_call.get("tool")
+        tool_args = tool_call.get("args", {})
+
+        if tool_name in TOOL_CONTEXT_MAP:
+            for arg_name in TOOL_CONTEXT_MAP[tool_name]:
+                if arg_name in context:
+                    tool_args[arg_name] = context[arg_name]
+        tool_call["args"] = tool_args
+
+        messages.append({"role": "model", "parts": [{"text": json.dumps({"tool_code": tool_call})}]})
+
+        ui_message = f"🛠️ 도구 실행: `{tool_name}`\n\n인자: `{tool_args}`"
+        
+        execution_result = execute_plan(tool_call)
+        
+        user_feedback_message = f"Tool {tool_name} executed. Result is stored in context." # Default message
+        if execution_result.get("status") == "200":
+            result_data = execution_result.get("result", {})
+            if result_data.get("status") != "error":
+                # For ANY successful tool call, pass the full result back to the LLM.
+                user_feedback_message = f"Tool {tool_name} executed. Result: {json.dumps(result_data, ensure_ascii=False)}"
+                
+                # Update context dictionary based on results
+                if "today" in result_data: 
+                    context["month"] = result_data["today"][:7]
+                if "todos" in result_data: 
+                    context["todos"] = json.dumps(result_data["todos"], ensure_ascii=False)
+                if "text" in result_data: 
+                    context["text_to_summarize"] = result_data["text"]
+                if "summary" in result_data: 
+                    context["kpi_summary"] = result_data["summary"]
+                if "content" in result_data: 
+                    context["content"] = result_data["content"]
+            else:
+                user_feedback_message = f"Tool {tool_name} failed. Error: {result_data.get('message')}"
+        else:
+            user_feedback_message = f"Tool {tool_name} execution failed. Server response: {execution_result.get('message', 'No details')}"
+
+        messages.append({"role": "user", "parts": [{"text": user_feedback_message}]})
+
+    elif "final_answer" in llm_response:
+        ui_message = llm_response["final_answer"]
+        is_final = True
+    
+    else:
+        ui_message = "에이전트가 다음 단계를 결정하지 못했습니다. 루프를 종료합니다."
+        is_final = True
+
+    return messages, context, ui_message, is_final
+
+
+def run_agent(command: str):
+    """
+    Runs the agent loop to process a command, using tools until a final answer is reached.
+    """
+    print(f"🚀 Starting agent with command: {command}")
+    
+    messages = [{"role": "user", "parts": [{"text": get_system_prompt(command)}]}]
+    context = {}
+    
     while True:
         print("\n🤔 Thinking...")
-        response = model.generate_content(messages)
+        messages, context, ui_message, is_final = agent_step(messages, context)
         
-        try:
-            llm_response = json.loads(response.text)
-            print(f"💡 LLM says: {json.dumps(llm_response, indent=2, ensure_ascii=False)}")
-        except (json.JSONDecodeError, AttributeError) as e:
-            print(f"❌ Error decoding LLM response: {e}")
-            print(f"Raw response: {response.text}")
-            llm_response = {"final_answer": "죄송합니다, 응답을 처리하는 중 오류가 발생했습니다."}
+        print(f"✅ Agent step result: {ui_message}")
 
-        if "tool_code" in llm_response:
-            tool_call = llm_response["tool_code"]
-            
-            if isinstance(tool_call, str):
-                tool_call = {"tool": tool_call, "args": {}}
-
-            tool_name = tool_call.get("tool")
-            tool_args = tool_call.get("args", {})
-
-            # 🧠 도구에 필요한 인자만 컨텍스트에서 선별적으로 주입 (컨텍스트 값을 우선)
-            if tool_name in TOOL_CONTEXT_MAP:
-                for arg_name in TOOL_CONTEXT_MAP[tool_name]:
-                    if arg_name in context:
-                        tool_args[arg_name] = context[arg_name]
-            tool_call["args"] = tool_args
-
-            messages.append({"role": "model", "parts": [{"text": json.dumps({"tool_code": tool_call})}]})
-
-            print(f"🛠️  Executing tool: {tool_name} with args: {tool_args}")
-            execution_result = execute_plan(tool_call)
-            print(f"✅ Tool result: {json.dumps(execution_result, indent=2, ensure_ascii=False)}")
-
-            # 🧠 실행 결과 처리 및 LLM에게 전달할 메시지 생성
-            user_feedback_message = f"Tool {tool_name} executed. Result is stored in context."
-            if execution_result.get("status") == "200":
-                result_data = execution_result.get("result", {})
-                if result_data.get("status") != "error":
-                    if "today" in result_data: 
-                        context["month"] = result_data["today"][:7]
-                        user_feedback_message = f"Tool {tool_name} executed. Result: {json.dumps(result_data)}"
-                    if "todos" in result_data: context["todos"] = json.dumps(result_data["todos"], ensure_ascii=False)
-                    if "text" in result_data: context["text_to_summarize"] = result_data["text"]
-                    if "summary" in result_data: context["kpi_summary"] = result_data["summary"]
-                    if "content" in result_data: context["content"] = result_data["content"]
-                else:
-                    user_feedback_message = f"Tool {tool_name} failed. Error: {result_data.get('message')}"
-
-            messages.append({
-                "role": "user",
-                "parts": [{ "text": user_feedback_message }]
-            })
-
-        elif "final_answer" in llm_response:
-            final_answer = llm_response["final_answer"]
-            print(f"\n🏁 Final Answer: {final_answer}")
-            break
-        
-        else:
-            print("❌ LLM response did not contain 'tool_code' or 'final_answer'.")
-            print("Ending agent loop.")
+        if is_final:
+            print(f"\n🏁 Final Answer: {ui_message}")
             break
