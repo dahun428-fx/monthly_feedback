@@ -14,7 +14,7 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # 모델 초기화
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-2.0-flash")
 def call_gemini(prompt: str):
     try:
         response = model.generate_content(prompt)

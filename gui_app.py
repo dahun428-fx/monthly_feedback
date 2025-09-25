@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import uuid
+import shutil
 import streamlit as st
 from dotenv import load_dotenv
 from client.llm_agent import agent_step, get_system_prompt
@@ -19,8 +20,10 @@ from mcp_server.tools import (
 APP_ROOT = Path(__file__).resolve().parent
 TODO_DIR = APP_ROOT / "storage" / "todos"
 KPI_STORAGE_ROOT = APP_ROOT / "storage" / "pdf"
+GUIDE_DIR = APP_ROOT / "storage" / "guide"
 TODO_DIR.mkdir(parents=True, exist_ok=True)
 KPI_STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+GUIDE_DIR.mkdir(parents=True, exist_ok=True)
 TODO_FILE = TODO_DIR / "todo_list.json"
 
 # .env 로드
@@ -74,6 +77,14 @@ def load_all_tasks():
 def save_all_tasks(all_tasks):
     with open(TODO_FILE, "w", encoding="utf-8") as f:
         json.dump(all_tasks, f, ensure_ascii=False, indent=2)
+
+def truncate_text(text, max_lines=3):
+    if not isinstance(text, str):
+        text = str(text)
+    lines = text.split('\n')
+    if len(lines) > max_lines:
+        return '\n'.join(lines[:max_lines]) + '\n...'
+    return text
 
 # ------------------------
 # Streamlit UI
@@ -295,13 +306,27 @@ elif st.session_state.active_tab == "KPI 관리":
         )
         st.session_state.selected_kpi_pdf = selected_pdf
 
-        if st.button("선택한 PDF 미리보기"):
-            with st.spinner("PDF 파싱 중..."):
-                res = parse_pdf.run(filename=selected_pdf)  # 도구는 "파일명만" 받는다고 가정
-            if res.get("status") == "success":
-                st.text_area("PDF 내용 미리보기", value=res.get("text", ""), height=300)
-            else:
-                st.error(f"PDF 파싱 오류: {res.get('message', '알 수 없는 오류')}")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("선택한 PDF 미리보기"):
+                with st.spinner("PDF 파싱 중..."):
+                    res = parse_pdf.run(filename=selected_pdf)
+                if res.get("status") == "success":
+                    st.text_area("PDF 내용 미리보기", value=res.get("text", ""), height=300)
+                else:
+                    st.error(f"PDF 파싱 오류: {res.get('message', '알 수 없는 오류')}")
+        with col2:
+            if st.button("대표 KPI 파일로 지정"):
+                if not selected_pdf:
+                    st.warning("지정할 PDF를 목록에서 선택하세요.")
+                else:
+                    source_path = KPI_STORAGE_ROOT / selected_pdf
+                    dest_path = GUIDE_DIR / "selected_KPI.pdf"
+                    try:
+                        shutil.copy(source_path, dest_path)
+                        st.success(f"'{selected_pdf}'을(를) 대표 KPI 파일로 지정했습니다.")
+                    except Exception as e:
+                        st.error(f"파일 지정 중 오류 발생: {e}")
     else:
         st.info("저장된 PDF가 없습니다. 상단에서 업로드하세요.")
 
@@ -432,7 +457,7 @@ elif st.session_state.active_tab == "LLM 채팅":
                 placeholder.markdown("🤔 Thinking...")
 
                 # Execute one step of the agent
-                new_llm_messages, new_context, ui_message, is_final = agent_step(
+                new_llm_messages, new_context, ui_message, is_final, wip_content = agent_step(
                     st.session_state.llm_messages, 
                     st.session_state.llm_context
                 )
@@ -443,6 +468,12 @@ elif st.session_state.active_tab == "LLM 채팅":
                 
                 # Show the result of the current step
                 placeholder.markdown(ui_message)
+                if wip_content:
+                    with st.expander("작업 상세 내용 보기", expanded=False):
+                        # Truncate and display the content
+                        display_content = json.dumps(wip_content, indent=2, ensure_ascii=False)
+                        st.code(display_content, language='json')
+
             
             # Add the agent's step output to the UI history
             st.session_state.ui_messages.append({"role": "assistant", "content": ui_message})
