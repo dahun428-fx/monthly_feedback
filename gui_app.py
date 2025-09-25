@@ -451,22 +451,21 @@ elif st.session_state.active_tab == "월별 피드백":
 
     # KPI 요약 생성
     if st.button("KPI 요약본 생성"):
-        if not st.session_state.get("selected_kpi_pdf"):
-            fb_status.error("KPI PDF를 먼저 선택하세요.")
+        # Always try to use the designated KPI file
+        with st.spinner("대표 KPI 파일 파싱 중..."):
+            parse_res = parse_pdf.run(filename='@designated')
+        
+        if parse_res.get("status") != "success":
+            fb_status.error(f"대표 KPI 파일 파싱 오류: {parse_res.get('message', '파싱 실패')}")
         else:
-            with st.spinner("PDF 파싱 중..."):
-                parse_res = parse_pdf.run(filename=st.session_state.selected_kpi_pdf)
-            if parse_res.get("status") != "success":
-                fb_status.error(f"PDF 파싱 오류: {parse_res.get('message', '파싱 실패')}")
+            kpi_text = parse_res.get("text", "")
+            with st.spinner("요약 생성 중..."):
+                sum_res = summarize_text.run(text_to_summarize=kpi_text)
+            if sum_res.get("status") == "success":
+                st.session_state.kpi_summary = sum_res.get("summary", "")
+                fb_status.success("KPI 요약 완료")
             else:
-                kpi_text = parse_res.get("text", "")
-                with st.spinner("요약 생성 중..."):
-                    sum_res = summarize_text.run(text_to_summarize=kpi_text)
-                if sum_res.get("status") == "success":
-                    st.session_state.kpi_summary = sum_res.get("summary", "")
-                    fb_status.success("KPI 요약 완료")
-                else:
-                    fb_status.error(f"요약 오류: {sum_res.get('message', '요약 실패')}")
+                fb_status.error(f"요약 오류: {sum_res.get('message', '요약 실패')}")
 
     st.text_area("KPI 요약본", value=st.session_state.get("kpi_summary") or "", height=200)
 
@@ -512,8 +511,9 @@ elif st.session_state.active_tab == "월별 피드백":
 
     colA, colB, colC = st.columns(3)
 
-    # 진행 플래그로 버튼 중복 클릭 방지
-    is_exporting = st.session_state.get("is_exporting_notion", False)
+    # 진행 플래그 초기화 (중복 방지)
+    if "is_exporting_notion" not in st.session_state:
+        st.session_state["is_exporting_notion"] = False
 
     with colA:
         generated_report = st.session_state.get("generated_report")
@@ -526,25 +526,22 @@ elif st.session_state.active_tab == "월별 피드백":
             help="보고서를 먼저 생성해야 다운로드할 수 있습니다."
         )
 
+    # ✅ 단일 버튼 + 2단계 처리 (placeholder 사용/이중 렌더 제거)
     with colB:
-        # disabled로 중복 실행 방지
-        if st.button("Notion으로 내보내기", disabled=is_exporting, key="btn_export_notion"):
+        export_clicked = st.button(
+            "Notion으로 내보내기",
+            disabled=st.session_state["is_exporting_notion"],
+            key="btn_export_notion",
+            help="생성된 보고서를 Notion 페이지로 업로드합니다."
+        )
+        if export_clicked:
             if not st.session_state.get("generated_report"):
                 fb_status.error("생성된 보고서 없음")
             else:
+                # 1단계: 플래그만 켜고 즉시 재실행 → 다음 렌더에서 실제 업로드
                 st.session_state["is_exporting_notion"] = True
-                with st.spinner("Notion 업로드 중..."):
-                    res = export_to_notion.run(
-                        month=st.session_state.selected_month,
-                        content=st.session_state.generated_report
-                    )
-                st.session_state["is_exporting_notion"] = False
+                st.rerun()
 
-                if res.get("status") == "success":
-                    st.toast("Notion 내보내기 완료!", icon="🎉")
-                    fb_status.success(f"업로드 완료: {res.get('url')}")
-                else:
-                    fb_status.error(f"Notion 오류: {res.get('message', '업로드 실패')}")
     with colC:
         try:
             st.link_button("Notion 이동", "https://www.notion.so/TEST-PAGE-27809ae27c27807da3d2e6cd7e74b836")
@@ -554,6 +551,27 @@ elif st.session_state.active_tab == "월별 피드백":
                 "[Notion 이동](https://www.notion.so/TEST-PAGE-27809ae27c27807da3d2e6cd7e74b836)",
                 unsafe_allow_html=True
             )
+
+    # 2단계: 실제 업로드 수행 구간 (버튼 밖에서, 렌더 1회에 딱 한 번만 실행)
+    if st.session_state.get("is_exporting_notion"):
+        with st.spinner("Notion 업로드 중..."):
+            res = export_to_notion.run(
+                month=st.session_state.selected_month,
+                content=st.session_state.generated_report
+            )
+
+        # 업로드 종료 → 버튼 다시 활성화
+        st.session_state["is_exporting_notion"] = False
+
+        if res.get("status") == "success":
+            st.toast("Notion 내보내기 완료!", icon="🎉")
+            fb_status.success(f"업로드 완료: {res.get('url')}")
+        else:
+            fb_status.error(f"Notion 오류: {res.get('message', '업로드 실패')}")
+
+        # 최종 상태 반영을 위해 1회 재렌더
+        st.rerun()
+
 
 elif st.session_state.active_tab == "템플릿 관리":
     st.header("월간 피드백 템플릿 관리")
