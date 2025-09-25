@@ -4,3 +4,6 @@ requests
 google-generativeai
 python-dotenv
 notion-client
+flet
+pdfplumber
+Streamlit
